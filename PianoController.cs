@@ -88,25 +88,25 @@ namespace PianoEnhancer
         private void MessageReceived(object sender, MidiInMessageEventArgs e)
         {
             if (e.MidiEvent.CommandCode == MidiCommandCode.TimingClock || e.MidiEvent.CommandCode == MidiCommandCode.AutoSensing) return;
-            switch (e.MidiEvent)
+            if (e.MidiEvent is NoteEvent note && note.Channel == Configuration.PlayChannel)
             {
-                case NoteEvent note when note.Channel == Configuration.PlayChannel:
+                if (PlayBack.CurrentVoice.ChannelAllocation == null)
                 {
-                    if (PlayBack.CurrentVoice.ChannelAllocation == null)
+                    _outDevice.Send(note.GetAsShortMessage());
+                }
+                else
+                {
+                    if (note.Velocity == 0)
                     {
-                        _outDevice.Send(note.GetAsShortMessage());
+                        RemovePlayingNote(note.NoteNumber);
                     }
                     else
                     {
-                        if (note.Velocity == 0)
+                        if (!_playingNotes.ContainsKey(note.NoteNumber))
+                            _playingNotes[note.NoteNumber] = new HashSet<KeyValuePair<int, int>>();
+                        for (var i = 0; i < 16; ++i)
                         {
-                            RemovePlayingNote(note.NoteNumber);
-                            break;
-                        }
-                        if(!_playingNotes.ContainsKey(note.NoteNumber)) _playingNotes[note.NoteNumber] = new HashSet<KeyValuePair<int, int>>();
-                        for(var i = 0; i < 16; ++i)
-                        {
-                            var newNote = new NoteOnEvent(0,i+1,note.NoteNumber,note.Velocity,1);
+                            var newNote = new NoteOnEvent(0, i + 1, note.NoteNumber, note.Velocity, 1);
                             if (i >= PlayBack.CurrentVoice.ChannelAllocation.Length) continue;
                             var channelSide = PlayBack.CurrentVoice.ChannelAllocation[i];
                             var splitPoint = PlayBack.CurrentVoice.SplitPoint;
@@ -126,17 +126,21 @@ namespace PianoEnhancer
                             }
                         }
                     }
-                    break;
                 }
+
+                if (note.Velocity != 0) PlayBack.NoteReceived(note.NoteNumber);
+            } 
+            else if (!(e.MidiEvent is NoteEvent) && !(e.MidiEvent is PatchChangeEvent))
+            {
+                _outDevice.Send(e.MidiEvent.GetAsShortMessage());
             }
-            
+
             _chordFormer.NoteReceived(e.MidiEvent);
         }
 
         private void ChordReceived(Chord chord)
         {
             Recorder.RecordChord(chord);
-            PlayBack.ChordReceived(chord);
         }
 
         private static void ErrorReceived(object sender, MidiInMessageEventArgs e)

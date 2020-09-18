@@ -7,5 +7,6 @@
         public const long ConsumeWindowSteps = 5;
         public const int TotalChannels = 16;
         public const int ChordTimeoutMs = 300;
+        public const int PendingNoteDiscardThreshold = 10_000;
     }
 }

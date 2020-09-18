@@ -158,20 +158,22 @@ namespace PianoEnhancer
             } else if (note >= 59)
             {
                 var steps = Voices.NoteNames.Take(note).Count(n => !n.Contains("#") && !n.Contains("B")) - 33;
+                if (Voices.NoteNames[note].Contains("#")) --steps;
                 var helpCount = steps / 2;
                 for (var line = 0; line < helpCount; ++line)
                 {
                     var newY = (int) (y + (line + 0.5) * BaseLineDistance) + (steps % 2 == 0 ? 0: BaseLineDistance / 2);
-                    g.DrawLine(_linePen,x-BaseLineDistance/2,newY,(int)(x +BaseLineDistance*1.5),newY);
+                    g.DrawLine(_linePen,x-BaseLineDistance/4,newY,(int)(x +BaseLineDistance*1.25),newY);
                 }
             } else if(note <= 19)
             {
                 var steps = 13 - Voices.NoteNames.Take(note).Count(n => !n.Contains("#") && !n.Contains("B"));
+                if (Voices.NoteNames[note].Contains("#")) ++steps;
                 var helpCount = steps / 2;
                 for (var line = 0; line < helpCount; ++line)
                 {
                     var newY = (int) (y - (line - 0.5) * BaseLineDistance) - (steps % 2 == 0 ? 0: BaseLineDistance / 2);
-                    g.DrawLine(_linePen, x - BaseLineDistance / 2, newY, (int) (x + BaseLineDistance * 1.5), newY);
+                    g.DrawLine(_linePen, x - BaseLineDistance / 4, newY, (int) (x + BaseLineDistance * 1.25), newY);
                 }
             }
         }

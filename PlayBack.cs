@@ -30,36 +30,37 @@ namespace PianoEnhancer
         private VoiceComposition _currentVoice;
         public bool IsPlaying { get; private set; }
         private IList<Chord> _pendingChords;
+        private IList<NoteOnEvent> _pendingNotes;
         private IList<KeyValuePair<int, VoiceComposition>> _voiceSwitchPoints;
-        private IList<Chord> _bufferedChords;
+        private IList<int> _bufferedNotes;
         private long _newestMatched;
         public int PendingPosition { get; private set; }
-        private IEnumerator<Chord> _pendingPointer;
+        private int _matchedNotes;
         private IEnumerator<KeyValuePair<int, VoiceComposition>> _voicePointer;
-        private int _playedSinceLastMatch;
 
         public PlayBack()
         {
-            _bufferedChords = new List<Chord>();
+            _bufferedNotes = new List<int>();
         }
 
         public void Play(Recording rec)
         {
             if (IsPlaying) return;
             _pendingChords = rec.Track;
+            _pendingNotes = _pendingChords.SelectMany(
+                chord => chord.Notes.Select(note => new NoteOnEvent(chord.AbsoluteTime,1,note,1,1))
+                ).ToList();
             _voiceSwitchPoints = rec.GetSwitchPoints().ToList();
-            lock (_bufferedChords)
+            lock (_bufferedNotes)
             {
-                _bufferedChords = new List<Chord>();
+                _bufferedNotes = new List<int>();
             }
 
             _newestMatched = 0;
             PendingPosition = 0;
-            _playedSinceLastMatch = 0;
-            _pendingPointer = _pendingChords.GetEnumerator();
+            _matchedNotes = 0;
             _voicePointer = _voiceSwitchPoints.GetEnumerator();
             _voicePointer.MoveNext();
-            _pendingPointer.MoveNext();
             IsPlaying = true;
             var worker = new Task(WorkerLoop);
             worker.Start();
@@ -71,13 +72,12 @@ namespace PianoEnhancer
             PlaybackStopped?.Invoke();
         }
 
-        public void ChordReceived(Chord chord)
+        public void NoteReceived(int note)
         {
             if (!IsPlaying) return;
-            lock (_bufferedChords)
+            lock (_bufferedNotes)
             {
-                _bufferedChords.Add(chord);
-                _playedSinceLastMatch++;
+                _bufferedNotes.Add(note);
             }
         }
 
@@ -112,47 +112,54 @@ namespace PianoEnhancer
             }
         }
 
+        private void IncrementMatchedNotes()
+        {
+            _matchedNotes++;
+            if (_matchedNotes != _pendingChords[PendingPosition].Notes.Length) return;
+            _matchedNotes = 0;
+            PendingPosition++;
+        }
+
         private void RemoveSurpassedNotes()
         {
-            var oldestPending = _pendingPointer.Current;
-            if (_newestMatched < oldestPending.AbsoluteTime &&
-                _playedSinceLastMatch <= Configuration.ConsumeWindowSteps) return;
-            if(!_pendingPointer.MoveNext())
+            var oldestPending = _pendingNotes[0];
+            if (_newestMatched - Configuration.PendingNoteDiscardThreshold <= oldestPending.AbsoluteTime) return;
+            if (_pendingNotes.Count <= 1)
             {
                 Stop();
                 return;
             }
-            PendingPosition++;
-            _playedSinceLastMatch--;
+            _pendingNotes.RemoveAt(0);
+            IncrementMatchedNotes();
         }
 
         private void MatchNotes()
         {
-            lock (_bufferedChords)
+            if (_pendingNotes.Count == 0)
             {
-                for (var i = 0; i < _bufferedChords.Count; ++i)
+                Stop();
+                return;
+            }
+            lock (_bufferedNotes)
+            {
+                for (var i = 0; i < _bufferedNotes.Count; ++i)
                 {
-                    var chord = _bufferedChords[i];
-                    var first = _pendingPointer.Current;
-                    if (first.Notes == null)
+                    var note = _bufferedNotes[i];
+                    for(var j = 0;  j < _pendingNotes.Count; ++j)
                     {
-                        Stop();
-                        return;
-                    }
-                    for(var j = PendingPosition;  j < _pendingChords.Count; ++j)
-                    {
-                        var candidate = _pendingChords[j];
-                        if (j - PendingPosition > Configuration.ConsumeWindowSteps)
+                        var candidate = _pendingNotes[j];
+                        if (j > Configuration.ConsumeWindowSteps)
                         {
-                            _bufferedChords.RemoveAt(i);
+                            _bufferedNotes.RemoveAt(i);
                             --i;
                             break;
                         }
-                        if (candidate != chord) continue;
-                        _bufferedChords.RemoveAt(i);
+                        if (candidate.NoteNumber != note) continue;
+                        _bufferedNotes.RemoveAt(i);
+                        _pendingNotes.RemoveAt(j);
                         _newestMatched = candidate.AbsoluteTime;
-                        _playedSinceLastMatch = 0;
                         --i;
+                        IncrementMatchedNotes();
                         break;
                     }
                 }
